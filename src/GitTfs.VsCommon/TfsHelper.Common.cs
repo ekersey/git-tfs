@@ -344,6 +344,14 @@ namespace GitTfs.VsCommon
                         // ToList'ed because inspecting the enumerable during debugging was resulting in TFS timeouts
                         var changesets = changesetEnumerable.ToList();
 
+                        // Look backwards for first 'Branch' changeset
+                        // Solves issue of branch/folder created, then deleted, then created again
+                        var firstChangesetInBranchToCreate = changesets.LastOrDefault(c => c.Changes.Any(ch => ch.ChangeType == ChangeType.Branch));
+                        if (firstChangesetInBranchToCreate != null)
+                        {
+                            changesets = changesets.SkipWhile(c => c.ChangesetId != firstChangesetInBranchToCreate.ChangesetId).ToList();
+                        }
+
                         // If our batch has no results, there's nothing left to check; we're done.
                         if (!changesets.Any())
                         {
