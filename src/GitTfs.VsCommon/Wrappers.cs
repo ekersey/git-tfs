@@ -536,7 +536,7 @@ namespace GitTfs.VsCommon
             }
         }
 
-        public void GetRequests(IEnumerable<GetRequest> source, bool noParallel, int batchSize = 20)
+        public void GetRequests(IEnumerable<GetRequest> source, bool noParallel, int batchSize = 50)
         {
 
             source.ToBatch(batchSize).ForEach(batch =>
