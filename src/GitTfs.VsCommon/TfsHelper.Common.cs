@@ -334,7 +334,7 @@ namespace GitTfs.VsCommon
                         var changesetsToRetrieve = batchNumber * batchSize;
 
                         var changesetEnumerable = Retry.Do(() => VersionControl.QueryHistory(tfsPathBranchToCreate, VersionSpec.Latest, 0,
-                            RecursionType.Full, null, null, null, changesetsToRetrieve, false, false, false, true)).Cast<Changeset>();
+                            RecursionType.Full, null, null, null, changesetsToRetrieve, true, false, false, true)).Cast<Changeset>();
 
                         if (batchNumber > 1)
                         {
