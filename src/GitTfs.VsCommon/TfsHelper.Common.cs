@@ -85,7 +85,6 @@ namespace GitTfs.VsCommon
                 }
 
                 _server = GetTfsCredential(uri);
-
                 _server.EnsureAuthenticated();
             }
         }
@@ -152,10 +151,11 @@ namespace GitTfs.VsCommon
             Trace.WriteLine("get [C" + e.Version + "]" + e.ServerItem);
         }
 
-        private ILinking _linking;
-        private ILinking Linking
+        private TswaClientHyperlinkService _hyperLinkService;
+
+        private TswaClientHyperlinkService HyperlinkService
         {
-            get { return _linking ?? (_linking = GetService<ILinking>()); }
+            get { return _hyperLinkService ?? (_hyperLinkService = GetService<TswaClientHyperlinkService>()); }
         }
 
         public int BatchCount
@@ -168,13 +168,6 @@ namespace GitTfs.VsCommon
 
         public IEnumerable<ITfsChangeset> GetChangesets(string path, int startVersion, IGitTfsRemote remote, int lastVersion = -1, bool byLots = false)
         {
-            if (Is2008OrOlder)
-            {
-                foreach (var changeset in GetChangesetsForTfs2008(path, startVersion, remote))
-                    yield return changeset;
-                yield break;
-            }
-
             var start = startVersion;
             Changeset[] changesets;
             var lastChangeset = lastVersion == -1 ? VersionSpec.Latest : new ChangesetVersionSpec(lastVersion);
@@ -197,6 +190,7 @@ namespace GitTfs.VsCommon
             } while (!byLots && changesets.Length == BatchCount);
         }
 
+<<<<<<< HEAD
         public IEnumerable<ITfsChangeset> GetChangesetsForTfs2008(string path, int startVersion, IGitTfsRemote remote)
         {
             var changesets = Retry.Do(() => VersionControl.QueryHistory(path, VersionSpec.Latest, 0, RecursionType.Full,
@@ -212,6 +206,8 @@ namespace GitTfs.VsCommon
             }
         }
 
+=======
+>>>>>>> 5003847e7beb589d04f77a1b742e8091f935bdf1
         public virtual int FindMergeChangesetParent(string path, int targetChangeset, GitTfsRemote remote)
         {
             var targetVersion = new ChangesetVersionSpec(targetChangeset);
@@ -235,16 +231,6 @@ namespace GitTfs.VsCommon
                     return -1;
                 return mergeSources.Max(mergeSource => mergeSource.VersionTo);
             });
-        }
-
-        public bool Is2008OrOlder
-        {
-            get { return _server.ConfigurationServer == null; }
-        }
-
-        public bool CanGetBranchInformation
-        {
-            get { return !Is2008OrOlder; }
         }
 
         public IEnumerable<string> GetAllTfsRootBranchesOrderedByCreation()
@@ -279,16 +265,6 @@ namespace GitTfs.VsCommon
 
             try
             {
-                if (!CanGetBranchInformation)
-                {
-                    Trace.WriteLine("Try TFS2008 compatibility mode...");
-                    foreach (var rootBranch in GetRootChangesetForBranchForTfs2008(tfsPathBranchToCreate, lastChangesetIdToCheck, tfsPathParentBranch))
-                    {
-                        AddNewRootBranch(rootBranches, rootBranch);
-                    }
-                    return;
-                }
-
                 if (!string.IsNullOrWhiteSpace(tfsPathParentBranch))
                     Trace.WriteLine("Parameter about parent branch will be ignored because this version of TFS is able to find the parent!");
 
@@ -655,16 +631,12 @@ namespace GitTfs.VsCommon
             var tfsChangeset = _container.With<ITfsHelper>(this).With<IChangeset>(_bridge.Wrap<WrapperForChangeset, Changeset>(changeset)).GetInstance<TfsChangeset>();
             tfsChangeset.Summary = new TfsChangesetInfo { ChangesetId = changeset.ChangesetId, Remote = remote };
 
-            if (HasWorkItems(changeset))
+            tfsChangeset.Summary.Workitems = changeset.AssociatedWorkItems.Select(wi => new TfsWorkitem
             {
-                tfsChangeset.Summary.Workitems = changeset.WorkItems.Select(wi => new TfsWorkitem
-                {
-                    Id = wi.Id,
-                    Title = wi.Title,
-                    Description = wi.Description,
-                    Url = Linking.GetArtifactUrl(wi.Uri.AbsoluteUri)
-                });
-            }
+                Id = wi.Id,
+                Title = wi.Title,
+                Url = HyperlinkService.GetWorkItemEditorUrl(wi.Id).ToString()
+            });
             tfsChangeset.Summary.CheckinNotes = changeset.CheckinNote.Values.Select(note => new TfsCheckinNote
             {
                 Name = note.Name,
@@ -675,6 +647,7 @@ namespace GitTfs.VsCommon
             return tfsChangeset;
         }
 
+<<<<<<< HEAD
         protected virtual bool HasWorkItems(Changeset changeset)
         {
             // This method wraps changeset.WorkItems, because
@@ -696,6 +669,9 @@ namespace GitTfs.VsCommon
         }
 
         private static readonly Dictionary<string, Workspace> _workspaces = new Dictionary<string, Workspace>();
+=======
+        private readonly Dictionary<string, Workspace> _workspaces = new Dictionary<string, Workspace>();
+>>>>>>> 5003847e7beb589d04f77a1b742e8091f935bdf1
 
         public void WithWorkspace(string localDirectory, IGitTfsRemote remote, IEnumerable<Tuple<string, string>> mappings, TfsChangesetInfo versionToFetch, Action<ITfsWorkspace> action)
         {

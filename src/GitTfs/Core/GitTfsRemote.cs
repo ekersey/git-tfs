@@ -442,12 +442,7 @@ namespace GitTfs.Core
 
         private bool ProcessMergeChangeset(ITfsChangeset changeset, bool stopOnFailMergeCommit, ref string parentCommit)
         {
-            if (!Tfs.CanGetBranchInformation)
-            {
-                Trace.TraceInformation("info: this changeset " + changeset.Summary.ChangesetId +
-                                 " is a merge changeset. But was not treated as is because this version of TFS can't manage branches...");
-            }
-            else if (!IsIgnoringBranches())
+            if (!IsIgnoringBranches())
             {
                 var parentChangesetId = Tfs.FindMergeChangesetParent(TfsRepositoryPath, changeset.Summary.ChangesetId, this);
                 if (parentChangesetId < 1)  // Handle missing merge parent info
@@ -868,7 +863,7 @@ namespace GitTfs.Core
             LogEntry result = null;
             WithWorkspace(changeset.Summary, workspace =>
             {
-                var treeBuilder = workspace.Remote.Repository.GetTreeBuilder(null);
+                var treeBuilder = workspace.Remote.Repository.GetTreeBuilder(lastCommit);
                 result = changeset.CopyTree(treeBuilder, workspace);
                 result.Tree = treeBuilder.GetTree();
             });
@@ -1105,7 +1100,7 @@ namespace GitTfs.Core
                     Url = TfsUrl,
                     Repository = tfsRepositoryPath,
                     RemoteOptions = remoteOptions
-                }, string.Empty);
+                });
                 tfsRemote.ExportMetadatas = ExportMetadatas;
                 tfsRemote.ExportWorkitemsMapping = ExportWorkitemsMapping;
             }
