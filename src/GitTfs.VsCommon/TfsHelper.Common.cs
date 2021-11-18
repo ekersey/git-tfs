@@ -190,24 +190,6 @@ namespace GitTfs.VsCommon
             } while (!byLots && changesets.Length == BatchCount);
         }
 
-<<<<<<< HEAD
-        public IEnumerable<ITfsChangeset> GetChangesetsForTfs2008(string path, int startVersion, IGitTfsRemote remote)
-        {
-            var changesets = Retry.Do(() => VersionControl.QueryHistory(path, VersionSpec.Latest, 0, RecursionType.Full,
-                                                                        null, new ChangesetVersionSpec(startVersion), VersionSpec.Latest, int.MaxValue,
-                                                                        true, true, true))
-                                                          .Cast<Changeset>().OrderBy(changeset => changeset.ChangesetId).ToArray();
-            // don't take the enumerator produced by a foreach statement or a yield statement, as there are references
-            // to the old (iterated) elements and thus the referenced changesets won't be disposed until all elements were iterated.
-            for (int i = 0; i < changesets.Length; i++)
-            {
-                yield return BuildTfsChangeset(changesets[i], remote);
-                changesets[i] = null;
-            }
-        }
-
-=======
->>>>>>> 5003847e7beb589d04f77a1b742e8091f935bdf1
         public virtual int FindMergeChangesetParent(string path, int targetChangeset, GitTfsRemote remote)
         {
             var targetVersion = new ChangesetVersionSpec(targetChangeset);
@@ -647,31 +629,7 @@ namespace GitTfs.VsCommon
             return tfsChangeset;
         }
 
-<<<<<<< HEAD
-        protected virtual bool HasWorkItems(Changeset changeset)
-        {
-            // This method wraps changeset.WorkItems, because
-            // changeset.WorkItems might result to ConnectionException: TF26175: Team Foundation Core Services attribute 'AttachmentServerUrl' not found.
-            // in this case assume that it is initialized to null
-            // NB: in VS2011 a new property appeared (AssociatedWorkItems), which works correctly
-            WorkItem[] result = null;
-            try
-            {
-                result = Retry.Do(() => changeset.WorkItems);
-            }
-            catch (ConnectionException exception)
-            {
-                if (!exception.Message.StartsWith("TF26175:"))
-                    throw;
-            }
-
-            return result != null && result.Length > 0;
-        }
-
-        private static readonly Dictionary<string, Workspace> _workspaces = new Dictionary<string, Workspace>();
-=======
         private readonly Dictionary<string, Workspace> _workspaces = new Dictionary<string, Workspace>();
->>>>>>> 5003847e7beb589d04f77a1b742e8091f935bdf1
 
         public void WithWorkspace(string localDirectory, IGitTfsRemote remote, IEnumerable<Tuple<string, string>> mappings, TfsChangesetInfo versionToFetch, Action<ITfsWorkspace> action)
         {
