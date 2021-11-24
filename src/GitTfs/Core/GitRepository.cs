@@ -776,7 +776,7 @@ namespace GitTfs.Core
             Trace.WriteLine(".gitignore commit created: " + sha);
 
             _repository.Refs.Add(ShortToTfsRemoteName("default"), new ObjectId(sha));
-            _repository.Refs.Add(ShortToLocalName("git-tfs-clone"), new ObjectId(sha));
+            _repository.Refs.Add(ShortToLocalName("main"), new ObjectId(sha));
 
             return sha;
         }
