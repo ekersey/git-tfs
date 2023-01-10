@@ -204,7 +204,7 @@ namespace GitTfs.VsCommon
             var targetVersion = new ChangesetVersionSpec(targetChangeset);
             var searchTo = targetVersion;
 
-            var changes = VersionControl.GetChangesForChangeset(targetChangeset, false, Int32.MaxValue, null, null, true).Where(change =>
+            var changes = Retry.Do(() => VersionControl.GetChangesForChangeset(targetChangeset, false, Int32.MaxValue, null, null, true)).Where(change =>
             {
                 return change.ChangeType.HasFlag(ChangeType.Merge) && change.Item.ServerItem.Contains(path);
             });
@@ -298,8 +298,8 @@ namespace GitTfs.VsCommon
                 {
                     var changesetsToRetrieve = batchNumber * batchSize;
 
-                    var changesetEnumerable = VersionControl.QueryHistory(tfsPathBranchToCreate, VersionSpec.Latest, 0,
-                        RecursionType.Full, null, null, null, changesetsToRetrieve, false, false, false, true).Cast<Changeset>();
+                    var changesetEnumerable = Retry.Do(() => VersionControl.QueryHistory(tfsPathBranchToCreate, VersionSpec.Latest, 0,
+                        RecursionType.Full, null, null, null, changesetsToRetrieve, true, false, false, true)).Cast<Changeset>();
 
                     if (batchNumber > 1)
                     {
@@ -308,6 +308,15 @@ namespace GitTfs.VsCommon
 
                     // ToList'ed because inspecting the enumerable during debugging was resulting in TFS timeouts
                     var changesets = changesetEnumerable.ToList();
+
+                    // Look backwards for first 'Branch' changeset
+                    // Solves issue of branch/folder created, then deleted, then created again
+                    var firstChangesetInBranchToCreate = changesets.LastOrDefault(c => c.Changes.Any(ch => ch.ChangeType == ChangeType.Branch));
+
+                    if (firstChangesetInBranchToCreate != null)
+                    {
+                        changesets = changesets.SkipWhile(c => c.ChangesetId != firstChangesetInBranchToCreate.ChangesetId).ToList();
+                    }
 
                     // If our batch has no results, there's nothing left to check; we're done.
                     if (!changesets.Any())
@@ -366,7 +375,7 @@ namespace GitTfs.VsCommon
                 if (_allTfsBranchObjects != null)
                     return _allTfsBranchObjects;
                 Trace.WriteLine("Looking for all branches...");
-                _allTfsBranchObjects = VersionControl.QueryRootBranchObjects(RecursionType.Full);
+                _allTfsBranchObjects = Retry.Do(() => VersionControl.QueryRootBranchObjects(RecursionType.Full));
                 return _allTfsBranchObjects;
             }
         }
@@ -617,7 +626,7 @@ namespace GitTfs.VsCommon
 
         private Workspace GetWorkspace(params WorkingFolder[] folders)
         {
-            var workspace = VersionControl.CreateWorkspace(GenerateWorkspaceName());
+            var workspace = Retry.Do(() => VersionControl.CreateWorkspace(GenerateWorkspaceName()));
             try
             {
                 SetWorkspaceMappingFolders(workspace, folders);
@@ -702,7 +711,7 @@ namespace GitTfs.VsCommon
             // If `git-tfs.workspace-dir` is set, workingDirectory will be that path.
 
             Trace.WriteLine("Looking for workspaces mapped to @\"" + workingDirectory + "\"...", "cleanup-workspaces");
-            var workspace = VersionControl.TryGetWorkspace(workingDirectory);
+            var workspace = Retry.Do(() => VersionControl.TryGetWorkspace(workingDirectory));
             if (workspace != null)
             {
                 Trace.WriteLine("Found mapping in workspace \"" + workspace.DisplayName + "\".", "cleanup-workspaces");
@@ -751,7 +760,7 @@ namespace GitTfs.VsCommon
 
         public bool HasShelveset(string shelvesetName)
         {
-            var matchingShelvesets = VersionControl.QueryShelvesets(shelvesetName, GetAuthenticatedUser());
+            var matchingShelvesets = Retry.Do(() => VersionControl.QueryShelvesets(shelvesetName, GetAuthenticatedUser()));
             return matchingShelvesets != null && matchingShelvesets.Length > 0;
         }
 
@@ -777,7 +786,7 @@ namespace GitTfs.VsCommon
         public ITfsChangeset GetShelvesetData(IGitTfsRemote remote, string shelvesetOwner, string shelvesetName)
         {
             shelvesetOwner = shelvesetOwner == "all" ? null : (shelvesetOwner ?? GetAuthenticatedUser());
-            var shelvesets = VersionControl.QueryShelvesets(shelvesetName, shelvesetOwner);
+            var shelvesets = Retry.Do(() => VersionControl.QueryShelvesets(shelvesetName, shelvesetOwner));
             if (shelvesets.Length != 1)
             {
                 throw new GitTfsException("Unable to find " + shelvesetOwner + "'s shelveset \"" + shelvesetName + "\" (" + shelvesets.Length + " matches).")
@@ -786,7 +795,7 @@ namespace GitTfs.VsCommon
             var shelveset = shelvesets.First();
 
             var itemSpec = new ItemSpec(remote.TfsRepositoryPath, RecursionType.Full);
-            var change = VersionControl.QueryShelvedChanges(shelveset, new ItemSpec[] { itemSpec }).SingleOrDefault();
+            var change = Retry.Do(() => VersionControl.QueryShelvedChanges(shelveset, new ItemSpec[] { itemSpec })).SingleOrDefault();
             if (change == null)
             {
                 throw new GitTfsException("There is no changes in this shelveset that apply to the current tfs remote.")
@@ -805,7 +814,7 @@ namespace GitTfs.VsCommon
             IEnumerable<Shelveset> shelvesets;
             try
             {
-                shelvesets = VersionControl.QueryShelvesets(null, shelvesetOwner);
+                shelvesets = Retry.Do(() => VersionControl.QueryShelvesets(null, shelvesetOwner));
             }
             catch (IdentityNotFoundException)
             {
@@ -1048,9 +1057,7 @@ namespace GitTfs.VsCommon
 
         public Changeset GetLatestChangeset(IGitTfsRemote remote, bool includeChanges)
         {
-            var history = VersionControl.QueryHistory(remote.TfsRepositoryPath, VersionSpec.Latest, 0,
-                                                      RecursionType.Full, null, null, VersionSpec.Latest, 1, includeChanges, false,
-                                                      false).Cast<Changeset>().ToList();
+            var history = Retry.Do(() => VersionControl.QueryHistory(remote.TfsRepositoryPath, VersionSpec.Latest, 0, RecursionType.Full, null, null, VersionSpec.Latest, 1, includeChanges, false, false)).Cast<Changeset>().ToList();
 
             if (history.Empty())
                 throw new GitTfsException("error: remote TFS repository path was not found");
@@ -1070,12 +1077,12 @@ namespace GitTfs.VsCommon
 
         public IChangeset GetChangeset(int changesetId)
         {
-            return _bridge.Wrap<WrapperForChangeset, Changeset>(VersionControl.GetChangeset(changesetId));
+            return _bridge.Wrap<WrapperForChangeset, Changeset>(Retry.Do(() => VersionControl.GetChangeset(changesetId)));
         }
 
         public ITfsChangeset GetChangeset(int changesetId, IGitTfsRemote remote)
         {
-            return BuildTfsChangeset(VersionControl.GetChangeset(changesetId), remote);
+            return BuildTfsChangeset(Retry.Do(() => VersionControl.GetChangeset(changesetId)), remote);
         }
 
         public IEnumerable<IWorkItemCheckinInfo> GetWorkItemInfos(IEnumerable<string> workItems, TfsWorkItemCheckinAction checkinAction)
@@ -1134,9 +1141,9 @@ namespace GitTfs.VsCommon
 
         public IEnumerable<TfsLabel> GetLabels(string tfsPathBranch, string nameFilter = null)
         {
-            foreach (var labelDefinition in VersionControl.QueryLabels(nameFilter, tfsPathBranch, null, false, null, VersionSpec.Latest))
+            foreach (var labelDefinition in Retry.Do(() => VersionControl.QueryLabels(nameFilter, tfsPathBranch, null, false, null, VersionSpec.Latest)))
             {
-                var label = VersionControl.QueryLabels(labelDefinition.Name, tfsPathBranch, null, true, null, VersionSpec.Latest).FirstOrDefault();
+                var label = Retry.Do(() => VersionControl.QueryLabels(labelDefinition.Name, tfsPathBranch, null, true, null, VersionSpec.Latest)).FirstOrDefault();
                 if (label == null)
                 {
                     throw new GitTfsException("error: data for the label '" + labelDefinition.Name + "' can't be loaded!");
@@ -1177,11 +1184,11 @@ namespace GitTfs.VsCommon
         public void CreateBranch(string sourcePath, string targetPath, int changesetId, string comment = null)
         {
             var changesetToBranch = new ChangesetVersionSpec(changesetId);
-            int branchChangesetId = VersionControl.CreateBranch(sourcePath, targetPath, changesetToBranch);
+            int branchChangesetId = Retry.Do(() => VersionControl.CreateBranch(sourcePath, targetPath, changesetToBranch));
 
             if (comment != null)
             {
-                Changeset changeset = VersionControl.GetChangeset(branchChangesetId);
+                Changeset changeset = Retry.Do(() => VersionControl.GetChangeset(branchChangesetId));
                 changeset.Comment = comment;
                 changeset.Update();
             }
@@ -1194,10 +1201,10 @@ namespace GitTfs.VsCommon
             Workspace workspace = null;
             try
             {
-                if (!VersionControl.ServerItemExists(projectPath, ItemType.Any))
+                if (!Retry.Do(() => VersionControl.ServerItemExists(projectPath, ItemType.Any)))
                 {
                     if (createTeamProjectFolder)
-                        VersionControl.CreateTeamProjectFolder(new TeamProjectFolderOptions(projectName));
+                        Retry.Do(() => VersionControl.CreateTeamProjectFolder(new TeamProjectFolderOptions(projectName)));
                     else
                         throw new GitTfsException("error: the team project folder '" + projectPath + "' doesn't exist!",
                             new List<string>()
@@ -1237,12 +1244,12 @@ namespace GitTfs.VsCommon
 
         public bool IsExistingInTfs(string path)
         {
-            return VersionControl.ServerItemExists(path, VersionSpec.Latest, DeletedState.Any, ItemType.Any);
+            return Retry.Do(() => VersionControl.ServerItemExists(path, VersionSpec.Latest, DeletedState.Any, ItemType.Any));
         }
 
         protected void ConvertFolderIntoBranch(string tfsRepositoryPath)
         {
-            VersionControl.CreateBranchObject(new BranchProperties(new ItemIdentifier(tfsRepositoryPath)));
+            Retry.Do(() => VersionControl.CreateBranchObject(new BranchProperties(new ItemIdentifier(tfsRepositoryPath))));
         }
 
         /// <summary>
@@ -1357,7 +1364,7 @@ namespace GitTfs.VsCommon
             if (build.Status == BuildStatus.Succeeded)
             {
                 Trace.TraceInformation("Build was successful! Your changes have been checked in.");
-                return VersionControl.GetLatestChangesetId();
+                return Retry.Do(() => VersionControl.GetLatestChangesetId());
             }
             else
             {
@@ -1367,7 +1374,7 @@ namespace GitTfs.VsCommon
 
         public void DeleteShelveset(IWorkspace workspace, string shelvesetName)
         {
-            VersionControl.DeleteShelveset(shelvesetName, workspace.OwnerName);
+            Retry.Do(() => VersionControl.DeleteShelveset(shelvesetName, workspace.OwnerName));
         }
 
         protected virtual IBuildDetail GetSpecificBuildFromQueuedBuild(IQueuedBuild queuedBuild, string shelvesetName)
